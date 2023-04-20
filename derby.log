@@ -1,0 +1,13 @@
+----------------------------------------------------------------
+Wed Apr 19 22:38:31 EDT 2023:
+Booting Derby version The Apache Software Foundation - Apache Derby - 10.14.2.0 - (1828579): instance a816c00e-0187-9c87-0f22-000003258ea0 
+on database directory memory:/home/cgar222/cs505-final-template/myDatabase with class loader jdk.internal.loader.ClassLoaders$AppClassLoader@55054057 
+Loaded from file:/home/cgar222/cs505-final-template/target/cs505-final-template-1.0-SNAPSHOT.jar
+java.vendor=Ubuntu
+java.runtime.version=11.0.17+8-post-Ubuntu-1ubuntu220.04
+user.dir=/home/cgar222/cs505-final-template
+os.name=Linux
+os.arch=amd64
+os.version=5.4.0-137-generic
+derby.system.home=null
+Database Class Loader started - derby.database.classpath=''

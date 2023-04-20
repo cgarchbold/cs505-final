@@ -7,7 +7,7 @@ import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.DeliverCallback;
 import cs505finaltemplate.Launcher;
-import io.siddhi.query.api.expression.condition.In;
+import com.orientechnologies.orient.core.record.OVertex;
 
 import java.lang.reflect.Type;
 import java.util.HashMap;
@@ -22,7 +22,6 @@ public class TopicConnector {
     final Type typeOfListMap = new TypeToken<List<Map<String,String>>>(){}.getType();
     final Type typeListTestingData = new TypeToken<List<TestingData>>(){}.getType();
 
-    //private String EXCHANGE_NAME = "patient_data";
     Map<String,String> config;
 
     public TopicConnector(Map<String,String> config) {
@@ -37,7 +36,6 @@ public class TopicConnector {
             //create connection factory, this can be used to create many connections
             ConnectionFactory factory = new ConnectionFactory();
             factory.setHost(config.get("hostname"));
-            factory.setPort(Integer.parseInt(config.get("port")));
             factory.setUsername(config.get("username"));
             factory.setPassword(config.get("password"));
             factory.setVirtualHost(config.get("virtualhost"));
@@ -59,7 +57,7 @@ public class TopicConnector {
     private void patientListChannel(Channel channel) {
         try {
 
-            System.out.println("Creating patient_list channel");
+            System.out.println("EDB: Creating patient_list channel");
 
             String topicName = "patient_list";
 
@@ -69,9 +67,10 @@ public class TopicConnector {
             channel.queueBind(queueName, topicName, "#");
 
 
-            System.out.println(" [*] Paitent List Waiting for messages. To exit press CTRL+C");
+            System.out.println(" [*] Patient List Waiting for messages. To exit press CTRL+C");
 
             DeliverCallback deliverCallback = (consumerTag, delivery) -> {
+                Launcher.graphDBEngine.db.activateOnCurrentThread();
 
                 String message = new String(delivery.getBody(), "UTF-8");
 
@@ -81,7 +80,9 @@ public class TopicConnector {
 
                     //Data to send to CEP
                     Map<String,String> zip_entry = new HashMap<>();
-                    zip_entry.put("zip_code",String.valueOf(testingData.patient_zipcode));
+                    if (testingData.patient_status == 1) {
+                        zip_entry.put("zip_code",String.valueOf(testingData.patient_zipcode));
+                    }
                     String testInput = gson.toJson(zip_entry);
                     //uncomment for debug
                     //System.out.println("testInput: " + testInput);
@@ -90,18 +91,38 @@ public class TopicConnector {
                     Launcher.cepEngine.input("testInStream",testInput);
 
                     //do something else with each record
-                    /*
-                    System.out.println("*Java Class*");
-                    System.out.println("\ttesting_id = " + testingData.testing_id);
-                    System.out.println("\tpatient_name = " + testingData.patient_name);
-                    System.out.println("\tpatient_mrn = " + testingData.patient_mrn);
-                    System.out.println("\tpatient_zipcode = " + testingData.patient_zipcode);
-                    System.out.println("\tpatient_status = " + testingData.patient_status);
-                    System.out.println("\tcontact_list = " + testingData.contact_list);
-                    System.out.println("\tevent_list = " + testingData.event_list);
-                     */
+                    OVertex patient_1;
+                    if (Launcher.graphDBEngine.isPatient(testingData.patient_mrn)) {
+                        patient_1 = Launcher.graphDBEngine.getPatient(testingData.patient_mrn);
+                    }
+                    else {
+                        patient_1 = Launcher.graphDBEngine.createPatient(testingData.patient_mrn);
+                    }
+                    if (testingData.contact_list != null) {
+                        for (String contact : testingData.contact_list) {
+                            OVertex patient_2;
+                            if (Launcher.graphDBEngine.isPatient(contact)) {
+                                patient_2 = Launcher.graphDBEngine.getPatient(contact);
+                            }
+                            else {
+                                patient_2 = Launcher.graphDBEngine.createPatient(contact);
+                            }
+                            Launcher.graphDBEngine.createContact(patient_1, patient_2);
+                        }
+                    }
+                    if (testingData.event_list != null) {
+                        for (String event_id : testingData.event_list) {
+                            OVertex event;
+                            if (Launcher.graphDBEngine.isEvent(event_id)) {
+                                event = Launcher.graphDBEngine.getEvent(event_id);
+                            }
+                            else {
+                                event = Launcher.graphDBEngine.createEvent(event_id);
+                            }
+                            Launcher.graphDBEngine.createAttend(patient_1, event);
+                        }
+                    }
                 }
-
             };
 
             channel.basicConsume(queueName, true, deliverCallback, consumerTag -> {
@@ -118,7 +139,7 @@ public class TopicConnector {
 
             String topicName = "hospital_list";
 
-            System.out.println("Creating hospital_list channel");
+            System.out.println("EDB: Creating hospital_list channel");
 
             channel.exchangeDeclare(topicName, "topic");
             String queueName = channel.queueDeclare().getQueue();
@@ -131,17 +152,27 @@ public class TopicConnector {
 
                 //new message
                 String message = new String(delivery.getBody(), "UTF-8");
-
-                //convert string to class
                 List<Map<String,String>> incomingList = gson.fromJson(message, typeOfListMap);
+
                 for (Map<String,String> hospitalData : incomingList) {
+
                     int hospital_id = Integer.parseInt(hospitalData.get("hospital_id"));
-                    String patient_name = hospitalData.get("patient_name");
                     String patient_mrn = hospitalData.get("patient_mrn");
                     int patient_status = Integer.parseInt(hospitalData.get("patient_status"));
-                    //do something with each each record.
-                }
 
+                    //do something with each each record.
+                    if (Launcher.embedded.isPatient(patient_mrn)) {
+                        //update data
+                        String updateQuery = "UPDATE hospitals SET patient_status = " + patient_status + ", hospital_id = '" + hospital_id + "' WHERE patient_mrn = '" + patient_mrn + "'";
+                        Launcher.embedded.executeUpdate(updateQuery);
+
+                    }
+                    else {
+                        //insert data
+                        String insertQuery = "INSERT INTO hospitals VALUES ('" + hospital_id + "','" + patient_mrn + "'," + patient_status + "," + 0 + ")";
+                        Launcher.embedded.executeUpdate(insertQuery);
+                    }
+                }
             };
 
             channel.basicConsume(queueName, true, deliverCallback, consumerTag -> {
@@ -158,27 +189,32 @@ public class TopicConnector {
 
             String topicName = "vax_list";
 
-            System.out.println("Creating vax_list channel");
+            System.out.println("EDB: Creating vax_list channel");
 
             channel.exchangeDeclare(topicName, "topic");
             String queueName = channel.queueDeclare().getQueue();
 
             channel.queueBind(queueName, topicName, "#");
-
-
             System.out.println(" [*] Vax List Waiting for messages. To exit press CTRL+C");
 
             DeliverCallback deliverCallback = (consumerTag, delivery) -> {
 
                 String message = new String(delivery.getBody(), "UTF-8");
-
-                //convert string to class
                 List<Map<String,String>> incomingList = gson.fromJson(message, typeOfListMap);
+
                 for (Map<String,String> vaxData : incomingList) {
-                    int vaccination_id = Integer.parseInt(vaxData.get("vaccination_id"));
-                    String patient_name = vaxData.get("patient_name");
                     String patient_mrn = vaxData.get("patient_mrn");
                     //do something with each each record.
+                    if (Launcher.embedded.isPatient(patient_mrn)) {
+                        //update data
+                        String updateQuery = "UPDATE hospitals SET vax_status = 1 WHERE patient_mrn = '" + patient_mrn + "'";
+                        Launcher.embedded.executeUpdate(updateQuery);
+                    }
+                    else {
+                        //insert data
+                        String insertQuery = "INSERT INTO hospitals VALUES (NULL,'" + patient_mrn + "',NULL," + 1 + ")";
+                        Launcher.embedded.executeUpdate(insertQuery);
+                    }
                 }
 
             };

@@ -10,10 +10,12 @@ import com.orientechnologies.orient.core.record.OVertex;
 import com.orientechnologies.orient.core.sql.executor.OResult;
 import com.orientechnologies.orient.core.sql.executor.OResultSet;
 
+import java.util.ArrayList;
+
 public class GraphDBEngine {
 
-
-    //!!! CODE HERE IS FOR EXAMPLE ONLY, YOU MUST CHECK AND MODIFY!!!
+    public static OrientDB orient = new OrientDB("remote:localhost", OrientDBConfig.defaultConfig());
+    public static ODatabaseSession db = orient.open("test", "root", "rootpwd");
     public GraphDBEngine() {
 
         //launch a docker container for orientdb, don't expect your data to be saved unless you configure a volume
@@ -21,13 +23,11 @@ public class GraphDBEngine {
 
         //use the orientdb dashboard to create a new database
         //see class notes for how to use the dashboard
-
-
-        OrientDB orient = new OrientDB("remote:localhost", OrientDBConfig.defaultConfig());
-        ODatabaseSession db = orient.open("test", "root", "rootpwd");
-
-        clearDB(db);
-
+        initDB();
+        
+    }
+    
+    public void initDB(){
         //create classes
         OClass patient = db.getClass("patient");
 
@@ -44,39 +44,128 @@ public class GraphDBEngine {
             db.createEdgeClass("contact_with");
         }
 
+        OClass event = db.getClass("event");
+        if (event == null) {
+            db.createVertexClass("event");
+        }
 
-        OVertex patient_0 = createPatient(db, "mrn_0");
-        OVertex patient_1 = createPatient(db, "mrn_1");
-        OVertex patient_2 = createPatient(db, "mrn_2");
-        OVertex patient_3 = createPatient(db, "mrn_3");
+        if (event.getProperty("event_id") == null) {
+            event.createProperty("event_id", OType.STRING);
+            event.createIndex("event_index", OClass.INDEX_TYPE.NOTUNIQUE, "event_id");
+        }
 
-        //patient 0 in contact with patient 1
-        OEdge edge1 = patient_0.addEdge(patient_1, "contact_with");
-        edge1.save();
-        //patient 2 in contact with patient 0
-        OEdge edge2 = patient_2.addEdge(patient_0, "contact_with");
-        edge2.save();
+        if (db.getClass("attend") == null) {
+            db.createEdgeClass("attend");
+        }
+    }
 
-        //you should not see patient_3 when trying to find contacts of patient 0
-        OEdge edge3 = patient_3.addEdge(patient_2, "contact_with");
-        edge3.save();
+    public void clearDB() {
 
-        getContacts(db, "mrn_0");
+        String query = "DELETE VERTEX FROM patient";
+        db.command(query);
 
-        db.close();
-        orient.close();
+        query = "DELETE VERTEX FROM event";
+        db.command(query);
 
     }
 
-    private OVertex createPatient(ODatabaseSession db, String patient_mrn) {
+    public boolean isPatient(String patient_mrn) {
+        String query = "select from patient where patient_mrn = \"" + patient_mrn + "\"";
+        OResultSet rs = db.query(query);
+
+        while (rs.hasNext()) {
+            OResult item = rs.next();
+            if (item.isVertex()) {
+                rs.close();
+                return true;
+            }
+        }
+        rs.close();
+        return false;
+    }
+
+    public boolean isEvent(String event_id) {
+        String query = "select from event where event_id = \"" + event_id + "\"";
+        OResultSet rs = db.query(query);
+
+        while (rs.hasNext()) {
+            OResult item = rs.next();
+            if (item.isVertex()) {
+                rs.close();
+                return true;
+            }
+        }
+        rs.close();
+        return false;
+    }
+
+    /* 
+        Functions to add new components to the Graph
+        -------------------------------------------
+    */
+    public OVertex createEvent(String event_id) {
+        OVertex result = db.newVertex("event");
+        result.setProperty("event_id", event_id);
+        result.save();
+        return result;
+    }
+
+    public void createAttend(OVertex patient, OVertex event) {
+        OEdge edge = patient.addEdge(event, "attend");
+        edge.save();
+    }
+
+    public void createContact(OVertex patient_1, OVertex patient_2) {
+        OEdge edge = patient_1.addEdge(patient_2, "contact_with");
+        edge.save();
+    }
+    public OVertex createPatient(String patient_mrn) {
         OVertex result = db.newVertex("patient");
         result.setProperty("patient_mrn", patient_mrn);
         result.save();
         return result;
     }
 
-    private void getContacts(ODatabaseSession db, String patient_mrn) {
+    /* 
+        Functions to retreive data from the Graph
+        -------------------------------------------
+    */
+    public OVertex getPatient(String patient_mrn) {
+        String query = "select from patient where patient_mrn = \"" + patient_mrn + "\"";
+        OResultSet rs = db.query(query);
 
+        OVertex patient = null;
+
+        while (rs.hasNext()) {
+            OResult item = rs.next();
+            if (item.isVertex()) {
+                patient = item.getVertex().get();
+                break;
+            }
+        }
+        rs.close();
+        return patient;
+    }
+
+    public OVertex getEvent(String event_id) {
+        String query = "select from event where event_id = \"" + event_id + "\"";
+        OResultSet rs = db.query(query);
+
+        OVertex event = null;
+
+        while (rs.hasNext()) {
+            OResult item = rs.next();
+            if (item.isVertex()) {
+                event = item.getVertex().get();
+                break;
+            }
+        }
+        rs.close();
+        return event;
+    }
+
+    public ArrayList<String> getEvents(String patient_mrn) {
+        ArrayList<String> events = new ArrayList<>();
         String query = "TRAVERSE inE(), outE(), inV(), outV() " +
                 "FROM (select from patient where patient_mrn = ?) " +
                 "WHILE $depth <= 2";
@@ -84,17 +173,47 @@ public class GraphDBEngine {
 
         while (rs.hasNext()) {
             OResult item = rs.next();
-            System.out.println("contact: " + item.getProperty("patient_mrn"));
+            if (item.getProperty("event_id") != null) {
+                events.add(item.getProperty("event_id"));
+            }
         }
+        rs.close(); 
+        return events;
+    }
 
+    public ArrayList<String> getAttendees(String event_id) {
+        ArrayList<String> events = new ArrayList<>();
+        String query = "TRAVERSE inE(), outE(), inV(), outV() " +
+                "FROM (select from event where event_id = ?) " +
+                "WHILE $depth <= 2";
+        OResultSet rs = db.query(query, event_id);
+
+        while (rs.hasNext()) {
+            OResult item = rs.next();
+            if (item.getProperty("patient_mrn") != null) {
+                events.add(item.getProperty("patient_mrn"));
+            }
+        }
+        rs.close(); 
+        return events;
+    }
+    
+    public ArrayList<String> getContacts(String patient_mrn) {
+
+        ArrayList<String> contacts = new ArrayList<>();
+        String query = "TRAVERSE inE(), outE(), inV(), outV() " +
+            "FROM (select from patient where patient_mrn = ?) " +
+            "WHILE $depth <= 2";
+        OResultSet rs = db.query(query, patient_mrn);
+
+        while (rs.hasNext()) {
+            OResult item = rs.next();
+            if (item.getProperty("patient_mrn") != null) {
+                contacts.add(item.getProperty("patient_mrn"));
+            }
+        }
         rs.close(); //REMEMBER TO ALWAYS CLOSE THE RESULT SET!!!
+        return contacts;
     }
 
-    private void clearDB(ODatabaseSession db) {
-
-        String query = "DELETE VERTEX FROM patient";
-        db.command(query);
-
-    }
-
-}
+} //END GRAPHDBENGINE

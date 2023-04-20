@@ -1,11 +1,11 @@
 # Important Files:
 **cs505-final-template/src/main/java/cs505finaltemplate/**
-Launcher.java - describes the start of CEP and OrientDB
-Topics/TopicConnector.java - describes the data subscription and how data to transfered to CEP and/or OrientDB
-CEP/OutputSubscriber.java - describes how the output from CEP is saved
-graphDB/GraphDBEngine.java - describes functions of graph database
-embeddedDB/DBEngine.java - describes functions of embedded relational database
-httpcontrollers/API.java - describes the API calls
+-Launcher.java - describes the start of CEP and OrientDB
+-Topics/TopicConnector.java - describes the data subscription and how data to transfered to CEP and/or OrientDB
+-CEP/OutputSubscriber.java - describes how the output from CEP is saved
+-graphDB/GraphDBEngine.java - describes functions of graph database
+-embeddedDB/DBEngine.java - describes functions of embedded relational database
+-httpcontrollers/API.java - describes the API calls
 
 # Before Running Program:
 **Open ports using https://www.cs.uky.edu/docs/users/openstack.html#creating-firewall-rules-on-your-vm**
